@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <Stmt>
+      <Acct><Id><IBAN>RO49AAAA1B31007593840000</IBAN></Id><Ccy>RON</Ccy></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="RON">10000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2024-07-03</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="RON">9050.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2024-07-03</Dt></Dt></Bal>
+      <Ntry>
+        <Amt Ccy="RON">-500.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2024-07-03</Dt></BookgDt>
+        <NtryDtls><TxDtls>
+          <Refs><InstrId>TRX-0001</InstrId><EndToEndId>INV-1001</EndToEndId></Refs>
+          <RltdPties><Dbtr><Nm>Supplier A SRL</Nm></Dbtr><Cdtr><Nm>Our Company</Nm></Cdtr></RltdPties>
+          <BkTxCd><Domn><Fmly><Cd>PMNT</Cd><SubFmlyCd>OCDT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="RON">-450.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2024-07-03</Dt></BookgDt>
+        <NtryDtls><TxDtls>
+          <Refs><InstrId>TRX-0002</InstrId></Refs>
+          <RltdPties><Dbtr><Nm>Supplier B SA</Nm></Dbtr><Cdtr><Nm>Our Company</Nm></Cdtr></RltdPties>
+          <BkTxCd><Domn><Fmly><Cd>PMNT</Cd><SubFmlyCd>OCDT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="RON">0.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2024-07-03</Dt></BookgDt>
+        <NtryDtls><TxDtls>
+          <Refs><InstrId>TRX-0003</InstrId><EndToEndId>INV-1002</EndToEndId></Refs>
+          <RltdPties><Dbtr><Nm>Supplier C LLC</Nm></Dbtr><Cdtr><Nm>Our Company</Nm></Cdtr></RltdPties>
+          <BkTxCd><Domn><Fmly><Cd>CHRG</Cd><SubFmlyCd>FEES</SubFmlyCd></Fmly></Domn></BkTxCd>
+          <RmtInf><Ustrd>Bank fee for July</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
+

@@ -1,0 +1,6 @@
+TxnId,Invoice,Counterparty,Amount,Currency,BookDate,Direction
+INT-2001,INV-1001,Supplier A SRL,-500.00,RON,2024-07-03,DBIT
+INT-2002,INV-1002,Supplier C LLC,-0.00,RON,2024-07-03,DBIT
+INT-2003,INV-9999,Supplier X Ltd,-450.00,RON,2024-07-03,DBIT
+INT-2004,INV-7777,Supplier Z GmbH,-120.00,RON,2024-07-03,DBIT
+
