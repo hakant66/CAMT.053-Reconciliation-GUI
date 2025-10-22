@@ -34,7 +34,7 @@ export default function DropZone({
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`${className} ${isDragOver ? "border-emerald-300/80 bg-emerald-900/40" : ""}`}
+      className={`${className} ${isDragOver ? "border-sky-400 bg-sky-50/80" : ""}`}
     >
       {children}
     </div>

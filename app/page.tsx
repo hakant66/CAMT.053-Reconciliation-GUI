@@ -1,10 +1,50 @@
 "use client";
-import React, { useState, useCallback } from "react";
+
+import React, { useCallback, useMemo, useState } from "react";
 import DropZone from "@/components/DropZone";
 import { parseCSV, toCSV } from "@/lib/csv";
 import { parseCamt053, type BankTxn } from "@/lib/camt";
 import { reconcile, type InternalTxn } from "@/lib/reconcile";
 
+// ---- small UI helpers (no extra deps) --------------------------------------
+const fmt = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatMoney = (n: number | undefined | null, ccy?: string | null) =>
+  n === undefined || n === null || Number.isNaN(n) ? "—" : `${fmt.format(Number(n))}${ccy ? ` ${ccy}` : ""}`;
+
+function Badge({ children, tone = "slate" as "slate" | "sky" | "rose" | "emerald" }) {
+  const tones: Record<string, string> = {
+    slate: "bg-slate-100 text-slate-700 ring-slate-200",
+    sky: "bg-sky-50 text-sky-700 ring-sky-200",
+    rose: "bg-rose-50 text-rose-700 ring-rose-200",
+    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tones[tone]}`}>{children}</span>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-100">
+      <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">{label}</div>
+      <div className="mt-1 text-base font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function SectionCard({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-200/60">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ---- page component ---------------------------------------------------------
 export default function Page() {
   const [xmlFile, setXmlFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -12,10 +52,18 @@ export default function Page() {
   const [dateTolDays, setDateTolDays] = useState<number>(0);
   const [err, setErr] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"matched" | "bank" | "internal">("matched");
+
   const [results, setResults] = useState<null | {
-    matched: any[]; bankOnly: BankTxn[]; internalOnly: InternalTxn[];
-    opening?: { amt: number; ccy: string | null }; closing?: { amt: number; ccy: string | null };
-    iban: string | null; sumMovements: number; calcClosing?: number; balanceOk?: boolean;
+    matched: any[];
+    bankOnly: BankTxn[];
+    internalOnly: InternalTxn[];
+    opening?: { amt: number; ccy: string | null };
+    closing?: { amt: number; ccy: string | null };
+    iban: string | null;
+    sumMovements: number;
+    calcClosing?: number;
+    balanceOk?: boolean;
   }>(null);
 
   const acceptXML = (f: File) => f.type.includes("xml") || f.name.toLowerCase().endsWith(".xml");
@@ -23,6 +71,14 @@ export default function Page() {
 
   const onDropXML = useCallback((f: File) => setXmlFile(f), []);
   const onDropCSV = useCallback((f: File) => setCsvFile(f), []);
+
+  const resetAll = useCallback(() => {
+    setXmlFile(null);
+    setCsvFile(null);
+    setErr(null);
+    setResults(null);
+    setActiveTab("matched");
+  }, []);
 
   async function handleProcess() {
     try {
@@ -36,7 +92,9 @@ export default function Page() {
       const csvText = await csvFile.text();
       const parsed = parseCSV(csvText);
       const required = ["TxnId", "Invoice", "Counterparty", "Amount", "Currency", "BookDate", "Direction"];
-      if (!required.every((c) => parsed.headers.includes(c))) throw new Error("internal_transactions.csv missing columns: " + required.join(", "));
+      if (!required.every((c) => parsed.headers.includes(c))) {
+        throw new Error("internal_transactions.csv missing columns: " + required.join(", "));
+      }
       const internal: InternalTxn[] = parsed.rows.map((r, i) => ({
         int_id: i,
         TxnId: r["TxnId"],
@@ -52,11 +110,13 @@ export default function Page() {
         amountTolerance: amountTol,
         dateToleranceDays: Math.max(0, Math.floor(dateTolDays)),
       });
+
       const sumMovements = bank.reduce((a, x) => a + (Number(x.Amount) || 0), 0);
       const calcClosing = opening ? opening.amt + sumMovements : undefined;
       const balanceOk = closing && typeof calcClosing === "number" ? Math.abs(calcClosing - closing.amt) < 1e-6 : undefined;
 
       setResults({ matched, bankOnly, internalOnly, opening, closing, iban, sumMovements, calcClosing, balanceOk });
+      setActiveTab("matched");
     } catch (e: any) {
       setErr(e?.message || String(e));
       setResults(null);
@@ -131,213 +191,274 @@ export default function Page() {
   }
 
   const dropBase =
-    "min-h-[140px] rounded-2xl border border-emerald-600/40 bg-emerald-950/30 p-6 text-sm transition hover:border-emerald-400/70 hover:bg-emerald-900/30 flex flex-col items-center justify-center gap-3 text-center";
+    "min-h-[140px] rounded-2xl border border-slate-200/80 bg-white/70 p-6 text-sm transition hover:border-sky-400 hover:shadow-lg hover:shadow-sky-100 flex flex-col items-center justify-center gap-3 text-center";
+
+  const counts = useMemo(() => ({
+    matched: results?.matched.length ?? 0,
+    bank: results?.bankOnly.length ?? 0,
+    internal: results?.internalOnly.length ?? 0,
+  }), [results]);
 
   return (
-    <main className="flex-1 px-6 pb-12 pt-10">
-      <header className="mx-auto max-w-5xl rounded-3xl border border-emerald-500/30 bg-emerald-900/40 p-8 shadow-xl shadow-emerald-950/40 backdrop-blur">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300/70">Reconciliation workspace</p>
-            <h1 className="text-3xl font-semibold text-emerald-50 md:text-4xl">CAMT.053 Reconciliation</h1>
-            <p className="max-w-2xl text-sm text-emerald-100/80">
-              Drag in your bank CAMT.053 XML and internal CSV, define tolerance windows, and export a polished reconciliation report.
-            </p>
+    <main className="min-h-dvh bg-slate-50 text-slate-900">
+      {/* Top bar */}
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-white">₹</div>
+            <div className="text-sm font-semibold">CAMT.053 Reconciliation</div>
+            <Badge>GUI</Badge>
           </div>
-          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/30 px-5 py-4 text-sm text-emerald-100/80">
-            <p className="font-medium text-emerald-100">Expected CSV Columns</p>
-            <p className="mt-1 text-xs text-emerald-200/80">TxnId, Invoice, Counterparty, Amount, Currency, BookDate, Direction</p>
+          <div className="flex items-center gap-3">
+            <button onClick={resetAll} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Reset</button>
+            {results && (
+              <button onClick={downloadReport} className="rounded-lg bg-slate-900 px-3.5 py-1.5 text-sm font-semibold text-white shadow hover:bg-slate-800">Download report</button>
+            )}
           </div>
         </div>
       </header>
 
-      <section className="mx-auto mt-8 max-w-5xl space-y-6">
+      {/* Hero area */}
+      <section className="mx-auto max-w-6xl px-6 pt-10">
+        <div className="relative overflow-hidden rounded-[32px] border border-white/60 bg-gradient-to-br from-[#0f172a] via-[#1e3a8a] to-[#1d4ed8] p-[1px] shadow-2xl shadow-indigo-200/50">
+          <div className="relative rounded-[31px] bg-gradient-to-br from-[#1f2a57] via-[#1b356b] to-[#102042]">
+            <div className="absolute -right-24 -top-24 h-60 w-60 rounded-full bg-sky-400/30 blur-3xl" />
+            <div className="absolute -left-16 -bottom-24 h-72 w-72 rounded-full bg-indigo-500/20 blur-3xl" />
+            <div className="relative grid gap-8 p-10 md:grid-cols-[1.4fr_1fr] md:items-end">
+              <div className="space-y-5">
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1 text-xs font-semibold uppercase tracking-[0.32em] text-slate-200">Platform</span>
+                <h1 className="text-4xl font-semibold tracking-tight text-white md:text-5xl">Treasury Reconciliation Workspace</h1>
+                <p className="max-w-xl text-sm leading-relaxed text-slate-200/90">
+                  Import CAMT.053 statements, join with internal ledgers, and export a clean audit-ready CSV. Drag & drop uploads, tolerance controls, and instant summaries.
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs text-slate-200/85">
+                  <Badge tone="sky">Drag & drop</Badge>
+                  <Badge tone="emerald">Tolerance controls</Badge>
+                  <Badge>CSV export</Badge>
+                </div>
+              </div>
+              <div className="w-full rounded-3xl border border-white/20 bg-white/15 p-6 text-sm text-white shadow-2xl shadow-indigo-500/20 backdrop-blur">
+                <p className="text-sm font-semibold tracking-wide text-white/90">Expected CSV Columns</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-100/85">TxnId, Invoice, Counterparty, Amount, Currency, BookDate, Direction</p>
+                <ul className="mt-4 space-y-2 text-xs text-slate-100/80">
+                  <li>• One row per internal ledger entry</li>
+                  <li>• Signed amounts (negative for debits if applicable)</li>
+                  <li>• ISO dates (YYYY-MM-DD)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Uploads & Params */}
+      <section className="mx-auto mt-10 max-w-6xl space-y-8 px-6">
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/30 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-            <label className="block text-sm font-semibold text-emerald-100">Bank statement (CAMT.053 XML)</label>
-            <p className="mt-1 text-xs text-emerald-200/70">Supports drag & drop or manual selection.</p>
+          <SectionCard title="Bank statement (CAMT.053 XML)">
+            <p className="text-xs text-slate-500">Drag & drop or choose a file.</p>
             <DropZone accept={acceptXML} onDropFile={onDropXML} className={`${dropBase} mt-4`}>
-              <span className="text-base font-medium text-emerald-100">Drop XML here</span>
-              <span className="text-xs uppercase tracking-[0.25em] text-emerald-300">or</span>
+              <span className="text-base font-semibold text-slate-900">Drop XML here</span>
+              <span className="text-xs uppercase tracking-[0.25em] text-slate-400">or</span>
               <input
                 type="file"
                 accept=".xml,application/xml,text/xml"
                 onChange={(e) => setXmlFile(e.target.files?.[0] || null)}
-                className="block w-full text-xs text-emerald-100 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:px-3 file:py-2 file:text-xs file:font-medium file:text-emerald-100 hover:file:bg-emerald-500/30"
+                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-slate-700"
               />
-              {xmlFile && <p className="text-xs text-emerald-200/80">Selected: {xmlFile.name}</p>}
+              {xmlFile && <p className="text-xs text-slate-500">Selected: {xmlFile.name}</p>}
             </DropZone>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/30 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-            <label className="block text-sm font-semibold text-emerald-100">Internal transactions (CSV)</label>
-            <p className="mt-1 text-xs text-emerald-200/70">Matches using invoice or tolerances.</p>
+          <SectionCard title="Internal transactions (CSV)">
+            <p className="text-xs text-slate-500">Matched by invoice or tolerances.</p>
             <DropZone accept={acceptCSV} onDropFile={onDropCSV} className={`${dropBase} mt-4`}>
-              <span className="text-base font-medium text-emerald-100">Drop CSV here</span>
-              <span className="text-xs uppercase tracking-[0.25em] text-emerald-300">or</span>
+              <span className="text-base font-semibold text-slate-900">Drop CSV here</span>
+              <span className="text-xs uppercase tracking-[0.25em] text-slate-400">or</span>
               <input
                 type="file"
                 accept=".csv,text/csv"
                 onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                className="block w-full text-xs text-emerald-100 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:px-3 file:py-2 file:text-xs file:font-medium file:text-emerald-100 hover:file:bg-emerald-500/30"
+                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-slate-700"
               />
-              {csvFile && <p className="text-xs text-emerald-200/80">Selected: {csvFile.name}</p>}
+              {csvFile && <p className="text-xs text-slate-500">Selected: {csvFile.name}</p>}
             </DropZone>
-          </div>
+          </SectionCard>
         </div>
 
-        <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/30 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-          <h2 className="text-sm font-semibold text-emerald-100">Matching parameters</h2>
-          <div className="mt-4 grid gap-6 md:grid-cols-3">
+        <SectionCard
+          title="Matching parameters"
+          right={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleProcess}
+                disabled={processing || !xmlFile || !csvFile}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {processing ? "Processing…" : "Run reconciliation"}
+              </button>
+            </div>
+          }
+        >
+          <div className="grid gap-6 md:grid-cols-3">
             <div>
-              <label className="text-xs uppercase tracking-[0.25em] text-emerald-400">Amount tolerance</label>
+              <label className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Amount tolerance</label>
               <input
                 type="number"
                 inputMode="decimal"
                 step="0.01"
                 value={amountTol}
                 onChange={(e) => setAmountTol(parseFloat(e.target.value))}
-                className="mt-2 w-full rounded-xl border border-emerald-600/40 bg-emerald-950/60 px-4 py-2 text-sm text-emerald-100 placeholder:text-emerald-300/50"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 placeholder:text-slate-300"
               />
-              <p className="mt-2 text-xs text-emerald-200/70">Absolute currency units (e.g. 0.50 → ±0.50).</p>
+              <p className="mt-2 text-xs text-slate-500">Absolute units (e.g. 0.50 → ±0.50).</p>
             </div>
             <div>
-              <label className="text-xs uppercase tracking-[0.25em] text-emerald-400">Date window (days)</label>
+              <label className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Date window (days)</label>
               <input
                 type="number"
                 step="1"
                 value={dateTolDays}
                 onChange={(e) => setDateTolDays(parseInt(e.target.value || "0", 10))}
-                className="mt-2 w-full rounded-xl border border-emerald-600/40 bg-emerald-950/60 px-4 py-2 text-sm text-emerald-100 placeholder:text-emerald-300/50"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 placeholder:text-slate-300"
               />
-              <p className="mt-2 text-xs text-emerald-200/70">Maximum booking-date difference.</p>
+              <p className="mt-2 text-xs text-slate-500">Maximum booking-date difference.</p>
             </div>
-            <div className="flex flex-col gap-3 md:items-end">
-              <button
-                onClick={handleProcess}
-                disabled={processing}
-                className="w-full rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-emerald-600/40 disabled:text-emerald-100/50 md:w-auto"
-              >
-                {processing ? "Processing…" : "Run reconciliation"}
-              </button>
+            <div className="grid grid-cols-2 gap-3 md:place-items-end">
+              <button onClick={resetAll} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-100">Reset</button>
               {results && (
-                <button
-                  onClick={downloadReport}
-                  className="w-full rounded-xl border border-emerald-400/60 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 hover:text-emerald-50 md:w-auto"
-                >
-                  Download report
-                </button>
+                <button onClick={downloadReport} className="rounded-xl border border-slate-900/20 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow hover:border-slate-900/40 hover:text-slate-900">Download report</button>
               )}
             </div>
           </div>
-        </div>
+        </SectionCard>
 
         {err && (
-          <div className="rounded-2xl border border-rose-500/40 bg-rose-900/40 p-4 text-rose-100 shadow-lg shadow-rose-900/30 backdrop-blur">
+          <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-700 shadow-lg shadow-rose-100">
             <strong className="font-semibold">Error:</strong> {err}
           </div>
         )}
 
         {results && (
-          <section className="space-y-6">
-            <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/30 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-              <h2 className="text-lg font-semibold text-emerald-50">Balance summary</h2>
-              <div className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">IBAN</p>
-                  <p className="mt-1 font-medium text-emerald-50">{results.iban || "—"}</p>
-                </div>
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Opening</p>
-                  <p className="mt-1 font-medium text-emerald-50">
-                    {results.opening?.amt?.toFixed(2)} {results.opening?.ccy || ""}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Closing (reported)</p>
-                  <p className="mt-1 font-medium text-emerald-50">
-                    {results.closing?.amt?.toFixed(2)} {results.closing?.ccy || ""}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Sum movements</p>
-                  <p className="mt-1 font-medium text-emerald-50">{results.sumMovements.toFixed(2)}</p>
-                </div>
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Closing (calculated)</p>
-                  <p className="mt-1 font-medium text-emerald-50">
-                    {typeof results.calcClosing === "number" ? results.calcClosing.toFixed(2) : "—"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/30 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Balance status</p>
-                  <p className="mt-1 font-medium text-emerald-50">
-                    {results.balanceOk === undefined ? "—" : results.balanceOk ? "Balanced" : "Variance detected"}
-                  </p>
-                </div>
-              </div>
+          <>
+            {/* Summary cards */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <Stat label="Opening balance" value={formatMoney(results.opening?.amt, results.opening?.ccy)} />
+              <Stat label="Sum movements" value={formatMoney(results.sumMovements)} />
+              <Stat label="Closing (reported)" value={formatMoney(results.closing?.amt, results.closing?.ccy)} />
+              <Stat label="Closing (calculated)" value={formatMoney(results.calcClosing, results.closing?.ccy)} />
+              <Stat label="IBAN" value={results.iban || "—"} />
+              <Stat
+                label="Balance status"
+                value={
+                  results.balanceOk === undefined ? (
+                    <Badge>—</Badge>
+                  ) : results.balanceOk ? (
+                    <Badge tone="emerald">Balanced</Badge>
+                  ) : (
+                    <Badge tone="rose">Variance detected</Badge>
+                  )
+                }
+              />
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-3">
-              <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/40 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-                <h3 className="text-base font-semibold text-emerald-50">
-                  Matched <span className="text-emerald-300/70">({results.matched.length})</span>
-                </h3>
-                <ul className="mt-4 max-h-64 space-y-3 overflow-auto pr-1 text-sm">
-                  {results.matched.map((m, i) => (
-                    <li key={i} className="rounded-xl border border-emerald-500/20 bg-emerald-900/40 p-3">
-                      <div className="text-xs uppercase tracking-[0.2em] text-emerald-300/70">Rule</div>
-                      <div className="text-emerald-100">{m.rule}</div>
-                      <div className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300/70">Invoice / E2E</div>
-                      <div className="text-emerald-100">{m.bank?.EndToEndId || "—"}</div>
-                      <div className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300/70">Amount · Direction · Date</div>
-                      <div className="text-emerald-100">
-                        {m.bank?.Amount} {m.bank?.Dir} {m.bank?.BookDate}
-                      </div>
-                    </li>
-                  ))}
-                  {results.matched.length === 0 && <li className="text-xs text-emerald-200/70">No deterministic or fuzzy matches.</li>}
-                </ul>
+            {/* Tabs */}
+            <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-2">
+              <div className="flex gap-2">
+                {([
+                  { key: "matched", label: `Matched (${counts.matched})` },
+                  { key: "bank", label: `Bank only (${counts.bank})` },
+                  { key: "internal", label: `Internal only (${counts.internal})` },
+                ] as const).map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setActiveTab(t.key)}
+                    className={`${activeTab === t.key ? "bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"} rounded-xl px-3 py-1.5 text-sm font-medium transition`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/40 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-                <h3 className="text-base font-semibold text-emerald-50">
-                  Bank only <span className="text-emerald-300/70">({results.bankOnly.length})</span>
-                </h3>
-                <ul className="mt-4 max-h-64 space-y-3 overflow-auto pr-1 text-sm">
-                  {results.bankOnly.map((b) => (
-                    <li key={b.bank_id} className="rounded-xl border border-emerald-500/20 bg-emerald-900/40 p-3">
-                      <div className="text-emerald-100">
-                        {b.Amount} {b.Ccy} · {b.Dir} · {b.BookDate}
-                      </div>
-                      <div className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300/70">E2E reference</div>
-                      <div className="text-emerald-100">{b.EndToEndId || "—"}</div>
-                    </li>
-                  ))}
-                  {results.bankOnly.length === 0 && <li className="text-xs text-emerald-200/70">All bank entries reconciled.</li>}
-                </ul>
-              </div>
-              <div className="rounded-3xl border border-emerald-600/30 bg-emerald-950/40 p-6 shadow-lg shadow-emerald-950/30 backdrop-blur">
-                <h3 className="text-base font-semibold text-emerald-50">
-                  Internal only <span className="text-emerald-300/70">({results.internalOnly.length})</span>
-                </h3>
-                <ul className="mt-4 max-h-64 space-y-3 overflow-auto pr-1 text-sm">
-                  {results.internalOnly.map((it) => (
-                    <li key={it.int_id} className="rounded-xl border border-emerald-500/20 bg-emerald-900/40 p-3">
-                      <div className="text-emerald-100">
-                        {it.Amount} {it.Currency} · {it.Direction} · {it.BookDate}
-                      </div>
-                      <div className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300/70">Invoice</div>
-                      <div className="text-emerald-100">{it.Invoice || "—"}</div>
-                    </li>
-                  ))}
-                  {results.internalOnly.length === 0 && <li className="text-xs text-emerald-200/70">No unmatched internal items.</li>}
-                </ul>
+
+              <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-slate-200">
+                {/* Table header */}
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50 sticky top-0 z-10">
+                    <tr>
+                      {activeTab === "matched" ? (
+                        <>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Invoice / E2E</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Direction</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Rule</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Reference</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Direction</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {activeTab === "matched" && results.matched.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-slate-400">No deterministic or fuzzy matches.</td>
+                      </tr>
+                    )}
+                    {activeTab === "matched" &&
+                      results.matched.map((m: any, i: number) => (
+                        <tr key={i} className="hover:bg-slate-50/60">
+                          <td className="px-3 py-2">{m.bank?.EndToEndId || "—"}</td>
+                          <td className="px-3 py-2">{formatMoney(m.bank?.Amount)}</td>
+                          <td className="px-3 py-2">{m.bank?.Dir || "—"}</td>
+                          <td className="px-3 py-2">{m.bank?.BookDate || "—"}</td>
+                          <td className="px-3 py-2"><Badge tone="sky">{m.rule}</Badge></td>
+                        </tr>
+                      ))}
+
+                    {activeTab === "bank" && results.bankOnly.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-center text-slate-400">All bank entries reconciled.</td>
+                      </tr>
+                    )}
+                    {activeTab === "bank" &&
+                      results.bankOnly.map((b) => (
+                        <tr key={b.bank_id} className="hover:bg-slate-50/60">
+                          <td className="px-3 py-2">{b.EndToEndId || "—"}</td>
+                          <td className="px-3 py-2">{formatMoney(b.Amount, b.Ccy)}</td>
+                          <td className="px-3 py-2">{b.Dir || "—"}</td>
+                          <td className="px-3 py-2">{b.BookDate || "—"}</td>
+                        </tr>
+                      ))}
+
+                    {activeTab === "internal" && results.internalOnly.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-center text-slate-400">No unmatched internal items.</td>
+                      </tr>
+                    )}
+                    {activeTab === "internal" &&
+                      results.internalOnly.map((it) => (
+                        <tr key={it.int_id} className="hover:bg-slate-50/60">
+                          <td className="px-3 py-2">{it.Invoice || "—"}</td>
+                          <td className="px-3 py-2">{formatMoney(it.Amount, it.Currency)}</td>
+                          <td className="px-3 py-2">{it.Direction || "—"}</td>
+                          <td className="px-3 py-2">{it.BookDate || "—"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </section>
+          </>
         )}
       </section>
+
+      <footer className="mt-16 border-t border-slate-200/80 bg-white/60 py-6 text-center text-xs text-slate-500">
+        CAMT.053 Reconciliation • Generated CSV is for guidance only – validate before posting to ERP.
+      </footer>
     </main>
   );
 }
-
