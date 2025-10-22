@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-body { @apply antialiased; }
+:root { color-scheme: dark; }
+body {
+  @apply antialiased min-h-dvh bg-slate-950 text-emerald-50;
+  background-image: radial-gradient(circle at top left, rgba(16, 185, 129, 0.25), transparent 55%), radial-gradient(circle at bottom right, rgba(21, 128, 61, 0.35), transparent 45%), linear-gradient(160deg, rgba(15, 118, 110, 0.6), rgba(30, 64, 175, 0.3), rgba(5, 46, 22, 0.8));
+  background-attachment: fixed;
+}
+
+a {
+  @apply text-emerald-200 transition-colors hover:text-emerald-100;
+}
+
+input, button {
+  @apply outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-emerald-950;
+}
 
